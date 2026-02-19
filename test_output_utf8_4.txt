@@ -1,0 +1,9 @@
+﻿
+   PASS  Tests\Feature\ReservationFlowTest
+  Ô£ô client caÔÇª 1.61s  
+  Ô£ô client caÔÇª 0.06s  
+  Ô£ô booking oÔÇª 0.07s  
+
+  Tests:    3 passed (11 assertions)
+  Duration: 1.94s
+
