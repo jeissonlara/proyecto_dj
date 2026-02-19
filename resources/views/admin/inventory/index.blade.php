@@ -1,7 +1,7 @@
 <x-app-layout>
     <div class="py-10">
         <div class="max-w-7xl mx-auto px-6 space-y-12">
-            
+
             <!-- Header -->
             <div class="flex justify-between items-center relative">
                 <div class="relative">
@@ -15,20 +15,13 @@
                 </a>
             </div>
 
-            @if(session('success'))
-                <div class="glass-card border-emerald-500/20 bg-emerald-500/5 text-emerald-400 px-8 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest flex items-center shadow-2xl">
-                    <svg class="w-6 h-6 mr-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                    {{ session('success') }}
-                </div>
-            @endif
-
             <!-- Inventory Catalog -->
             <div class="grid grid-cols-1 gap-6">
-                @foreach($equipos as $equipo)
+                @forelse($equipos as $equipo)
                     <div class="glass-card rounded-[2.5rem] border-white/10 p-8 transition-all hover:border-purple-500/30 group relative overflow-hidden shadow-2xl hover:shadow-purple-500/10">
                         <div class="flex items-center gap-8 relative z-10">
-                            
-                            <!-- Equipo Image (Force size) -->
+
+                            <!-- Equipo Image -->
                             <div class="w-40 h-40 bg-white/5 rounded-[2.5rem] overflow-hidden flex-shrink-0 border border-white/20 p-1.5 group-hover:border-purple-500/50 transition-colors shadow-2xl">
                                 <div class="w-full h-full rounded-[2.2rem] overflow-hidden bg-slate-950 border border-white/5 relative">
                                     @if(isset($equipo->imagen_url))
@@ -80,13 +73,20 @@
                             </div>
                         </div>
                     </div>
-                @endforeach
+                @empty
+                    <div class="glass-card rounded-[2.5rem] border-white/10 p-24 text-center">
+                        <p class="text-slate-400 font-black uppercase tracking-widest">No hay equipos registrados en el inventario.</p>
+                    </div>
+                @endforelse
             </div>
 
-        </div>
-    </div>
+            <!-- Pagination -->
+            @if($equipos->hasPages())
+                <div class="mt-8">
+                    {{ $equipos->links() }}
+                </div>
+            @endif
 
         </div>
     </div>
 </x-app-layout>
-

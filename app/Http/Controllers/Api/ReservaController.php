@@ -3,134 +3,114 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Models\EstadoReserva;
 use App\Models\Reserva;
-use App\Models\User;
+use App\Services\ReservacionService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class ReservaController extends Controller
 {
-    // Ver disponibilidad real por fecha
-    public function disponibilidad($fecha)
+    public function __construct(protected ReservacionService $reservacionService)
     {
-        $ocupados = Reserva::where('fecha_evento', $fecha)
-                    ->where('estado_id', 1)
-                    ->count();
+    }
 
-        $totalDjs = User::where('role', User::ROLE_DJ)->count();
-
-        $disponible = $ocupados < $totalDjs;
+    /**
+     * Verifica disponibilidad de DJs para una fecha.
+     * FIX BUG-02: ahora excluye estado RECHAZADA en vez de contar solo PENDIENTE.
+     */
+    public function disponibilidad(string $fecha): JsonResponse
+    {
+        $disponible = $this->reservacionService->hayDisponibilidad($fecha);
 
         return response()->json([
             'success' => true,
             'message' => $disponible ? 'Hay DJs disponibles' : 'No hay DJs disponibles',
-            'data' => [
+            'data'    => [
                 'disponible' => $disponible,
-                'fecha' => $fecha
-            ]
-        ], 200);
+                'fecha'      => $fecha,
+            ],
+        ]);
     }
 
-    // Crear reserva asignando DJ libre
-    public function reservar(Request $request)
+    /**
+     * Crear una reserva desde la app móvil.
+     */
+    public function reservar(Request $request): JsonResponse
     {
-        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
-            'plan_id' => 'required|exists:planes,id',
-            'fecha_evento' => 'required|date|after_or_equal:today',
-            'direccion_evento' => 'required|string',
+        $validated = $request->validate([
+            'plan_id'          => 'required|exists:planes,id',
+            'fecha_evento'     => 'required|date|after_or_equal:today',
+            'direccion_evento' => 'required|string|max:255',
+            'telefono_cliente' => 'required|string|max:20',
+            'observaciones'    => 'nullable|string|max:1000',
         ]);
 
-        if ($validator->fails()) {
+        try {
+            $result = $this->reservacionService->crearReserva($validated, $request->user()->id);
+        } catch (\RuntimeException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error de validación',
-                'data' => $validator->errors()
-            ], 422);
-        }
-
-        $user = $request->user();
-
-        // Lógica de asignación de DJ
-        $djDisponible = User::where('role', User::ROLE_DJ)
-            ->whereDoesntHave('events', function ($q) use ($request) {
-                $q->where('fecha_evento', $request->fecha_evento)
-                  ->where('estado_id', 1);
-            })->first();
-
-        if (!$djDisponible) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No hay DJs disponibles para esta fecha',
-                'data' => null
+                'message' => $e->getMessage(),
+                'data'    => null,
             ], 409);
         }
-
-        // Crear reserva
-        $reserva = Reserva::create([
-            'user_id' => $user->id,
-            'plan_id' => $request->plan_id,
-            'dj_id' => $djDisponible->id,
-            'fecha_evento' => $request->fecha_evento,
-            'direccion_evento' => $request->direccion_evento,
-            'estado_id' => 1, // Pendiente
-            'observaciones' => $request->observaciones ?? null
-        ]);
 
         return response()->json([
             'success' => true,
             'message' => 'Reserva creada exitosamente',
-            'data' => $reserva
+            'data'    => $result['reserva']->load(['plan', 'estado']),
         ], 201);
     }
 
-    // Listar reservas (Solo del usuario autenticado)
-    public function listar(Request $request)
+    /**
+     * Listar reservas del usuario autenticado.
+     */
+    public function listar(Request $request): JsonResponse
     {
-        $user = $request->user();
-        
-        // Si es admin o DJ podría ver más, pero por ahora en la app móvil asumimos vista de cliente
         $reservas = Reserva::with(['plan', 'estado'])
-                        ->where('user_id', $user->id)
-                        ->orderBy('fecha_evento', 'desc')
-                        ->get();
+            ->where('user_id', $request->user()->id)
+            ->orderBy('fecha_evento', 'desc')
+            ->get();
 
         return response()->json([
             'success' => true,
             'message' => 'Reservas recuperadas',
-            'data' => $reservas
-        ], 200);
+            'data'    => $reservas,
+        ]);
     }
 
-    // Cancelar reserva
-    public function cancelar(Request $request, $id)
+    /**
+     * Cancelar una reserva del usuario autenticado.
+     */
+    public function cancelar(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-        $reserva = Reserva::where('id', $id)->where('user_id', $user->id)->first();
+        $reserva = Reserva::where('id', $id)
+            ->where('user_id', $request->user()->id)
+            ->first();
 
         if (!$reserva) {
             return response()->json([
                 'success' => false,
                 'message' => 'Reserva no encontrada o no autorizada',
-                'data' => null
+                'data'    => null,
             ], 404);
         }
 
-        if ($reserva->estado_id == 2 || $reserva->estado_id == 4) { // Confirmada o Completada
-             return response()->json([
+        if (in_array($reserva->estado_id, [EstadoReserva::CONFIRMADA, EstadoReserva::FINALIZADA])) {
+            return response()->json([
                 'success' => false,
-                'message' => 'No se puede cancelar una reserva confirmada o completada',
-                'data' => null
+                'message' => 'No se puede cancelar una reserva confirmada o finalizada',
+                'data'    => null,
             ], 400);
         }
 
-        $reserva->estado_id = 3; // Cancelada
-        $reserva->save();
+        $reserva->update(['estado_id' => EstadoReserva::RECHAZADA]);
 
         return response()->json([
             'success' => true,
             'message' => 'Reserva cancelada correctamente',
-            'data' => $reserva
-        ], 200);
+            'data'    => $reserva->fresh(['plan', 'estado']),
+        ]);
     }
 }
-
-

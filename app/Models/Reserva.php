@@ -61,12 +61,12 @@ class Reserva extends Model
 
     public function isFinalized(): bool
     {
-        return $this->estado_id === 4;
+        return $this->estado_id === EstadoReserva::FINALIZADA;
     }
 
     public function isConfirmed(): bool
     {
-        return $this->estado_id === 2;
+        return $this->estado_id === EstadoReserva::CONFIRMADA;
     }
 
     /**
